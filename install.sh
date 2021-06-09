@@ -27,7 +27,7 @@ OK="${Green}[OK]${Font}"
 ERROR="${Red}[ERROR]${Font}"
 
 # 变量
-shell_version="1.2.8"
+shell_version="1.2.13"
 github_branch="main"
 xray_conf_dir="/usr/local/etc/xray"
 website_dir="/www/xray_web/"
@@ -175,9 +175,9 @@ function dependency_install() {
   #  judge "编译工具包 安装"
 
   if [[ "${ID}" == "centos" ]]; then
-    ${INS} pcre pcre-devel zlib-devel epel-release openssl openssl-devel
+    ${INS} pcre pcre-devel zlib-devel epel-release openssl openssl-devel iputils
   else
-    ${INS} libpcre3 libpcre3-dev zlib1g-dev openssl libssl-dev
+    ${INS} libpcre3 libpcre3-dev zlib1g-dev openssl libssl-dev iputils-ping
   fi
 
   ${INS} jq
@@ -304,7 +304,7 @@ function modify_tls_version() {
 function configure_nginx() {
   nginx_conf="/etc/nginx/conf.d/${domain}.conf"
   cd /etc/nginx/conf.d/ && rm -f ${domain}.conf && wget -O ${domain}.conf https://raw.githubusercontent.com/wulabing/Xray_onekey/${github_branch}/config/web.conf
-  sed -i "/server_name/c \\\tserver_name ${domain};" ${nginx_conf}
+  sed -i "s/xxx/${domain}/g" ${nginx_conf}
   judge "Nginx config modify"
 
   systemctl restart nginx
@@ -382,12 +382,10 @@ function ssl_install() {
 function acme() {
 
   sed -i "6s/^/#/" "$nginx_conf"
-
-  # 启动 Nginx Xray 并使用 Nginx 配合 acme 进行证书签发
+  sed -i "6a\\\troot $website_dir;" "$nginx_conf"
   systemctl restart nginx
-  systemctl restart xray
 
-  if "$HOME"/.acme.sh/acme.sh --issue -d "${domain}" --nginx -k ec-256 --force; then
+  if "$HOME"/.acme.sh/acme.sh --issue -d "${domain}" --webroot "$website_dir" -k ec-256 --force; then
     print_ok "SSL 证书生成成功"
     sleep 2
     if "$HOME"/.acme.sh/acme.sh --installcert -d "${domain}" --fullchainpath /ssl/xray.crt --keypath /ssl/xray.key --reloadcmd "systemctl restart xray" --ecc --force; then
@@ -400,6 +398,7 @@ function acme() {
     exit 1
   fi
 
+  sed -i "7d" "$nginx_conf"
   sed -i "6s/#//" "$nginx_conf"
 }
 
@@ -646,6 +645,7 @@ menu() {
   echo -e "${Green}33.${Font} 卸载 Xray"
   echo -e "${Green}34.${Font} 更新 Xray-core"
   echo -e "${Green}35.${Font} 安装 Xray-core 测试版(Pre)"
+  echo -e "${Green}36.${Font} 手动更新SSL证书"
   echo -e "${Green}40.${Font} 退出"
   read -rp "请输入数字：" menu_num
   case $menu_num in
@@ -718,6 +718,10 @@ menu() {
     ;;
   35)
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" - install --beta
+    restart_all
+    ;;
+  36)
+    "/root/.acme.sh"/acme.sh --cron --home "/root/.acme.sh"
     restart_all
     ;;
   40)
